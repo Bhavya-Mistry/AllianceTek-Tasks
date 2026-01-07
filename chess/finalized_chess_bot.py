@@ -20,9 +20,23 @@ BROWSER_OFFSET_Y = 55
 def get_bezier_path(start, end):
     start_x, start_y = start
     end_x, end_y = end
-    control_x = (start_x + end_x) / 2 + random.randint(-200, 200)
-    control_y = (start_y + end_y) / 2 + random.randint(-200, 200)
-    points = np.linspace(0, 1, num=random.randint(20, 50))
+    
+    # Calculate distance to scale the sway properly
+    # (So short moves don't have huge loops)
+    dist = np.hypot(end_x - start_x, end_y - start_y)
+    
+    # Sway is now proportional to distance (e.g., 20% of the distance)
+    # But capped at min 20px and max 80px to prevent extremes
+    sway_amount = min(max(dist * 0.2, 20), 80)
+    
+    # Random direction for the curve
+    offset_x = random.randint(int(-sway_amount), int(sway_amount))
+    offset_y = random.randint(int(-sway_amount), int(sway_amount))
+
+    control_x = (start_x + end_x) / 2 + offset_x
+    control_y = (start_y + end_y) / 2 + offset_y
+    
+    points = np.linspace(0, 1, num=random.randint(40, 80)) # Keep your preferred point count
     path = []
     for t in points:
         x = (1-t)**2 * start_x + 2*(1-t)*t * control_x + t**2 * end_x
@@ -30,26 +44,73 @@ def get_bezier_path(start, end):
         path.append((x, y))
     return path
 
-def move_mouse_smoothly(target_x, target_y):
+# def move_mouse_smoothly(target_x, target_y):
+#     start_x, start_y = pyautogui.position()
+#     path = get_bezier_path((start_x, start_y), (target_x, target_y))
+#     for x, y in path:
+#         pyautogui.moveTo(x, y)
+#         time.sleep(random.uniform(0.000001, 0.0001))
+#     pyautogui.moveTo(target_x, target_y)
+def move_mouse_smoothly(target_x, target_y, speed="slow"):
     start_x, start_y = pyautogui.position()
     path = get_bezier_path((start_x, start_y), (target_x, target_y))
+    
+    # --- SPEED SETTINGS ---
+    if speed == "fast":
+        # APPROACH: Fewer steps, tiny sleep (Snappy)
+        sleep_min = 0.0000001
+        sleep_max = 0.00001
+        # Slice path to skip points (makes it faster/coarser)
+        path = path[::2] 
+    else:
+        # DRAG: More steps, noticeable delay (Careful)
+        sleep_min = 0.00001
+        sleep_max = 0.0001
+
     for x, y in path:
         pyautogui.moveTo(x, y)
-        time.sleep(random.uniform(0.000001, 0.0001))
+        time.sleep(random.uniform(sleep_min, sleep_max))
+        
+    # Ensure we land exactly on target
     pyautogui.moveTo(target_x, target_y)
 
-def perform_chess_move(start_x, start_y, end_x, end_y):
-    #src sq
-    move_mouse_smoothly(start_x, start_y)
-    time.sleep(random.uniform(0.1, 0.2)) 
+
+# def perform_chess_move(start_x, start_y, end_x, end_y):
+#     #src sq
+#     move_mouse_smoothly(start_x, start_y)
+#     time.sleep(random.uniform(0.1, 0.2)) 
     
+#     pyautogui.mouseDown()
+    
+#     #dest sq
+#     move_mouse_smoothly(end_x, end_y)
+#     time.sleep(random.uniform(0.1, 0.2))
+    
+#     pyautogui.mouseUp()
+def perform_chess_move(start_x, start_y, end_x, end_y):
+    """
+    UPGRADED: Fast approach, slow drag.
+    """
+    # 1. Approach the source square -> FAST!
+    move_mouse_smoothly(start_x, start_y, speed="fast")
+    
+    # Brief pause to "visually confirm" we are over the piece
+    time.sleep(random.uniform(0.05, 0.2)) 
+    
+    # 2. PRESS DOWN (Grab)
     pyautogui.mouseDown()
     
-    #dest sq
-    move_mouse_smoothly(end_x, end_y)
-    time.sleep(random.uniform(0.1, 0.2))
+    # 3. Drag to destination -> SLOW / CAREFUL
+    move_mouse_smoothly(end_x, end_y, speed="slow")
     
+    # Stabilize aim before dropping
+    time.sleep(random.uniform(0.1, 0.2)) 
+    
+    # 4. RELEASE (Drop)
     pyautogui.mouseUp()
+
+
+
 
 
 def get_last_move_from_highlights(driver, board):
@@ -190,7 +251,7 @@ def run_bot():
                 if move_count < 6:
                     think_time = random.uniform(0.5, 0.7)
                 else:
-                    think_time = random.uniform(2.5, 8.0)
+                    think_time = random.uniform(1, 8.0)
                 
                 time.sleep(think_time)
                 
