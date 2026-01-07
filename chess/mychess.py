@@ -36,7 +36,7 @@ def get_bezier_path(start, end):
     control_x = (start_x + end_x) / 2 + offset_x
     control_y = (start_y + end_y) / 2 + offset_y
     
-    points = np.linspace(0, 1, num=random.randint(40, 80)) # Keep your preferred point count
+    points = np.linspace(0, 1, num=random.randint(30, 50)) # Keep your preferred point count
     path = []
     for t in points:
         x = (1-t)**2 * start_x + 2*(1-t)*t * control_x + t**2 * end_x
@@ -59,7 +59,7 @@ def move_mouse_smoothly(target_x, target_y, speed="slow"):
     if speed == "fast":
         # APPROACH: Fewer steps, tiny sleep (Snappy)
         sleep_min = 0.0
-        sleep_max = 0.00001
+        sleep_max = 0.0
         # Slice path to skip points (makes it faster/coarser)
         path = path[::2]
     else:
@@ -247,11 +247,40 @@ def run_bot():
             if board.turn == bot_color:
                 print("\n[Bot Thinking...]")
                 
+                # move_count = board.fullmove_number
+                # if move_count < 6:
+                #     think_time = random.uniform(0.5, 0.7)
+                # else:
+                #     think_time = random.uniform(1, 8.0)
                 move_count = board.fullmove_number
-                if move_count < 6:
-                    think_time = random.uniform(0.5, 0.7)
+                
+                # 1. Opening Phase (First 6 moves) - Play relatively fast
+                if move_count < 5:
+                    think_time = random.uniform(0.1, 0.5)
+                
+                # 2. Mid/Endgame - varied timing
                 else:
-                    think_time = random.uniform(1, 8.0)
+                    # Roll a die (0 to 100) to decide "How hard should I think?"
+                    dice_roll = random.randint(1, 100)
+                    
+                    if dice_roll <= 40:
+                        # 40% chance: FAST MOVE (Obvious captures/responses)
+                        think_time = random.uniform(1.0, 3.0)
+                        
+                    elif dice_roll <= 80:
+                        # 40% chance: NORMAL THINK (Standard play)
+                        think_time = random.uniform(4.0, 10.0)
+                        
+                    elif dice_roll <= 95:
+                        # 15% chance: DEEP THINK (Tactical position)
+                        think_time = random.uniform(11.0, 17.0)
+                        
+                    else:
+                        # 5% chance: LONG PAUSE (Coffee break / Hard calculation)
+                        think_time = random.uniform(20.0, 25.0)
+                
+                print(f"[Bot Thinking] target time: {think_time:.2f}s") 
+                time.sleep(think_time)
                 
                 time.sleep(think_time)
                 
@@ -273,7 +302,7 @@ def run_bot():
                 board.push(best_move)
                 
                 # Move mouse slightly away to avoid blocking view
-                pyautogui.moveRel(150, 0)
+                # pyautogui.moveRel(150, 0)
                 
             else:
                 print("Waiting for opponent...", end="\r")
