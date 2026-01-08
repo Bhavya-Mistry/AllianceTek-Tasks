@@ -58,14 +58,15 @@ def move_mouse_smoothly(target_x, target_y, speed="slow"):
     # --- SPEED SETTINGS ---
     if speed == "fast":
         # APPROACH: Fewer steps, tiny sleep (Snappy)
-        sleep_min = 0.0
-        sleep_max = 0.0
+        sleep_min = 0.00000000001
+        sleep_max = 0.00000001
         # Slice path to skip points (makes it faster/coarser)
-        path = path[::2]
+        path = path[::30]
     else:
         # DRAG: More steps, noticeable delay (Careful)
         sleep_min = 0.0000001
         sleep_max = 0.00001
+        path = path[:5]
 
     for x, y in path:
         pyautogui.moveTo(x, y)
@@ -218,7 +219,7 @@ def run_bot():
         engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
         engine.configure({
             "UCI_LimitStrength": True,
-            "UCI_Elo": 1350  # <--- CHANGE THIS NUMBER TO MATCH YOUR DESIRED RATING
+            "UCI_Elo": 2500  # <--- CHANGE THIS NUMBER TO MATCH YOUR DESIRED RATING
         })
         print(f"LOG: Stockfish strength limited for safety.")
 
@@ -256,7 +257,7 @@ def run_bot():
                 
                 # 1. Opening Phase (First 6 moves) - Play relatively fast
                 if move_count < 5:
-                    think_time = random.uniform(0.1, 0.5)
+                    think_time = random.uniform(0.01, 0.3)
                 
                 # 2. Mid/Endgame - varied timing
                 else:
@@ -265,19 +266,19 @@ def run_bot():
                     
                     if dice_roll <= 40:
                         # 40% chance: FAST MOVE (Obvious captures/responses)
-                        think_time = random.uniform(1.0, 3.0)
+                        think_time = random.uniform(0.7, 2.5)
                         
                     elif dice_roll <= 80:
                         # 40% chance: NORMAL THINK (Standard play)
-                        think_time = random.uniform(4.0, 10.0)
+                        think_time = random.uniform(3.5, 5.0)
                         
                     elif dice_roll <= 95:
                         # 15% chance: DEEP THINK (Tactical position)
-                        think_time = random.uniform(11.0, 17.0)
+                        think_time = random.uniform(7.0, 10.0)
                         
                     else:
                         # 5% chance: LONG PAUSE (Coffee break / Hard calculation)
-                        think_time = random.uniform(20.0, 25.0)
+                        think_time = random.uniform(15.0, 20.0)
                 
                 print(f"[Bot Thinking] target time: {think_time:.2f}s") 
                 time.sleep(think_time)
