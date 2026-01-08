@@ -1,0 +1,15 @@
+[project]
+name = "chess-auto"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "onnxruntime>=1.23.2",
+    "opencv-python>=4.12.0.88",
+    "pillow>=12.0.0",
+    "pyautogui>=0.9.54",
+    "stockfish>=4.0.5",
+    "ultralytics>=8.3.246",
+]
