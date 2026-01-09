@@ -16,7 +16,9 @@ from play_started_detection import detect_play_started
 from board_state_detector import detect_board_state, draw_house_boxes
 from stockfish import Stockfish
 
+from human_mouse import move_mouse_humanly
 
+import random, math
 # from smart_yolo import SmartYoloBot
 from piece_identifier import SmartClassifierBot
 
@@ -125,15 +127,39 @@ print(f"[System] Loaded {len(game_over_templates)} game-over templates.")
 # =========================
 # STOCKFISH
 # =========================
-stockfish = Stockfish(
-    path=STOCKFISH_PATH,
-    # depth=20,
-    parameters={
-        "Threads": 2,
-        "Minimum Thinking Time": 300,
-        "Skill Level": 5,
-    }
-)
+# stockfish = Stockfish(
+#     path=STOCKFISH_PATH,
+#     # depth=20,
+#     parameters={
+#         "Threads": 2,
+#         "Minimum Thinking Time": 300,
+#         "Skill Level": 5,
+#     }
+# )
+
+# =========================
+# STOCKFISH MANAGER
+# =========================
+def get_stockfish_engine():
+    try:
+        engine = Stockfish(
+            path=STOCKFISH_PATH,
+            parameters={
+                "Threads": 2,
+                "Minimum Thinking Time": 3000,
+                "Skill Level": 5,
+            }
+        )
+        return engine
+    except Exception as e:
+        print(f"[Stockfish Error] Could not start engine: {e}")
+        return None
+
+# Initialize first instance
+stockfish = get_stockfish_engine()
+if not stockfish:
+    print("[CRITICAL] Stockfish failed to load. Exiting.")
+    exit(1)
 
 # =========================
 # HELPERS
@@ -374,16 +400,41 @@ for i in range(1, 9999):
     if fen.count("k") != 1 or fen.count("K") != 1:
         print("[FEN ERROR] Invalid kings — skipping")
         continue
-
-    stockfish.set_fen_position(fen)
-
-    best_move = stockfish.get_best_move()
     
+    
+    # 1. Validate FEN first
+    if not stockfish.is_fen_valid(fen):
+        print(f"[FEN ERROR] Stockfish says FEN is invalid/impossible: {fen}")
+        # This usually happens if CNN hallucinates. 
+        # We skip this frame and hope the next screenshot is clearer.
+        continue
+
+    try:
+        stockfish.set_fen_position(fen)
+        
+        # 2. Safety check: Is the game actually over?
+        # Sometimes visual detection misses "Checkmate", but Stockfish knows.
+        eval_info = stockfish.get_evaluation()
+        if eval_info["type"] == "mate" and eval_info["value"] == 0:
+            print("[Stockfish] Detects Checkmate. Game Over.")
+            break
+
+        best_move = stockfish.get_best_move()
+    
+    except Exception as e:
+        print(f"[Stockfish Crash] The engine died! Restarting... Error: {e}")
+        # 3. AUTO-RESTART ENGINE
+        # This prevents the script from stopping entirely
+        del stockfish
+        stockfish = get_stockfish_engine()
+        continue
 
     print(f"[Stockfish] {best_move}")
 
     if not best_move:
         continue
+    
+    # ... proceed to move logic ...
 
     from_sq = best_move[:2].upper()
     to_sq = best_move[2:4].upper()
@@ -397,11 +448,32 @@ for i in range(1, 9999):
 
     print(f"[MOVE] {from_sq} → {to_sq}")
 
-    pyautogui.moveTo(fx / RETINA_SCALE, fy / RETINA_SCALE, duration=0.25)
+
+    # Calculate screen coordinates
+    start_x = fx / RETINA_SCALE
+    start_y = fy / RETINA_SCALE
+    end_x = tx / RETINA_SCALE
+    end_y = ty / RETINA_SCALE
+
+    # 1. THINKING DELAY
+    # Randomly wait between 0.5s and 2.0s before moving to simulate reading
+    think_time = random.uniform(0.5, 2.0)
+    print(f"   (Thinking for {think_time:.2f}s...)")
+    time.sleep(think_time)
+
+    # 2. MOVE TO PIECE (The "Pickup")
+    # Get current mouse pos and move to start square in a curve
+    curr_x, curr_y = pyautogui.position()
+    move_mouse_humanly(curr_x, curr_y, start_x, start_y, duration=random.uniform(0.2, 0.4))
+    
     pyautogui.mouseDown()
-    time.sleep(0.08)
-    pyautogui.moveTo(tx / RETINA_SCALE, ty / RETINA_SCALE, duration=0.25)
+    
+    # 3. DRAG PIECE (The "Action")
+    # Drag slower and with a curve to the target
+    move_mouse_humanly(start_x, start_y, end_x, end_y, duration=random.uniform(0.3, 0.6))
+    
     pyautogui.mouseUp()
 
-
-    time.sleep(3)
+    # 4. POST-MOVE CHILL
+    # Rest for a split second before scanning again
+    time.sleep(random.uniform(0.2, 0.5))
