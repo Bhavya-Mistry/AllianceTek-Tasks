@@ -144,10 +144,11 @@ def get_stockfish_engine():
     try:
         engine = Stockfish(
             path=STOCKFISH_PATH,
+            depth=20,
             parameters={
                 "Threads": 2,
                 "Minimum Thinking Time": 3000,
-                "Skill Level": 5,
+                "Skill Level": 20,
             }
         )
         return engine

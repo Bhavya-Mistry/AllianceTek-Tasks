@@ -1,0 +1,20 @@
+<html>
+    <head>
+
+    </head>
+    <body>
+        <h1>Hiiii</h1>
+        <ul>
+    
+            {% for i in mylist %}
+                {% if i == 10 %}
+                    <li style="color: red;"> {{i}}</li>
+                {% else %}
+                    <li>{{i}}</li>
+                {%endif%}
+            {% endfor %}
+            
+        </ul>
+        <p>{{mylist}}</p>
+    </body>
+</html>
