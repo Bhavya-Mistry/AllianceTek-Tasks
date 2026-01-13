@@ -6,7 +6,7 @@ class BookCreate(BaseModel):
     pages:int
 
 class BookRead(BaseModel):
-    id = int
-    title = str
-    author = str
-    pages = int
+    id : int
+    title : str
+    author : str
+    pages : int
