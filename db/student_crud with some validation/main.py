@@ -25,24 +25,51 @@ def students():
             })
         return jsonify(result)
 
-    # POST
-    data = request.json
+    else:
+        # POST
+        data = request.json
 
-    student = Student(
-        name=data["name"],
-        email=data["email"],
-        age=data["age"]
-    )
+        if not data:
+            return jsonify({"error": "JSON body required"}), 400
+        
+        required_fields = ["name", "email", "age"]
 
-    db.add(student)
-    db.commit()
-    db.refresh(student)
-    db.close()
+        for i in required_fields:
+            if i not in data:
+                return jsonify(
+                    {
+                        "error":f"{i} is required"
+                    }
+                ),400
+            
+        existing_student = (
+            db.query(Student)
+            .filter(Student.email==data["email"])
+            .first()
+        )    
 
-    return jsonify({
-        "message": "Student created",
-        "id": student.id
-    }), 201
+        if existing_student:
+            return jsonify(
+                {
+                    "error":"student already exists"
+                }
+            ),409
+
+        student = Student(
+            name=data["name"],
+            email=data["email"],
+            age=data["age"]
+        )
+
+        db.add(student)
+        db.commit()
+        db.refresh(student)
+        db.close()
+
+        return jsonify({
+            "message": "Student created",
+            "id": student.id
+        }), 201
 
 
 @app.route("/students/<int:id>", methods=["GET", "PUT", "DELETE"])
