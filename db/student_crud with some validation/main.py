@@ -2,7 +2,9 @@ from flask import Flask, request, jsonify
 from models import Base, Student
 from database import engine, SessionLocal
 
+
 app = Flask(__name__)
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -91,9 +93,30 @@ def student_detail(id):
             "age": student.age
         })
 
-    # UPDATE student
+    # UPDATE student (PUT = full update)
     if request.method == "PUT":
         data = request.json
+
+        if not data:
+            db.close()
+            return jsonify({"error": "JSON body required"}), 400
+
+        required_fields = ["name", "email", "age"]
+        for field in required_fields:
+            if field not in data:
+                db.close()
+                return jsonify({"error": f"{field} is required"}), 400
+
+        # Duplicate email check (exclude self)
+        existing_student = (
+            db.query(Student)
+            .filter(Student.email == data["email"])
+            .first()
+        )
+
+        if existing_student and existing_student.id != id:
+            db.close()
+            return jsonify({"error": "Student with this email already exists"}), 409
 
         student.name = data["name"]
         student.email = data["email"]
@@ -104,13 +127,12 @@ def student_detail(id):
 
         return jsonify({"message": "Student updated"})
 
-    else:
-        # DELETE student
-        db.delete(student)
-        db.commit()
-        db.close()
+    # DELETE student
+    db.delete(student)
+    db.commit()
+    db.close()
 
-        return jsonify({"message": "Student deleted"})
+    return jsonify({"message": "Student deleted"})
 
 
 if __name__ == "__main__":
