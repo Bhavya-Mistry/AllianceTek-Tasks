@@ -1,89 +1,35 @@
-import pyautogui
-import time
 import random
-
-# ===================== CONFIG =====================
-RETINA_SCALE = 1          # set to 1 if not on Retina / HiDPI
-pyautogui.FAILSAFE = True # move mouse to corner to stop
-pyautogui.PAUSE = 0
-# ==================================================
+import time
+import math
+import pyautogui
 
 
-def human_move(start, end, duration=0.6):
+def move_mouse_humanly(x1, y1, x2, y2, duration=0.5):
     """
-    Move mouse in a human-like curved path using Bezier curve,
-    acceleration/deceleration, and micro jitter.
+    Moves mouse from (x1, y1) to (x2, y2) in a smooth, human-like arc.
     """
-    sx, sy = start
-    ex, ey = end
+    # 1. Create a random "control point" to curve the path
+    # Deviate the path by 10% to 30% of the distance
+    dist = math.hypot(x2 - x1, y2 - y1)
+    offset = dist * random.uniform(0.1, 0.3)
 
-    # Random control point (creates curve)
-    cx = (sx + ex) / 2 + random.randint(-120, 120)
-    cy = (sy + ey) / 2 + random.randint(-120, 120)
+    # Random direction for the curve (left or right)
+    if random.choice([True, False]):
+        ctrl_x = (x1 + x2) / 2 + offset
+        ctrl_y = (y1 + y2) / 2 - offset
+    else:
+        ctrl_x = (x1 + x2) / 2 - offset
+        ctrl_y = (y1 + y2) / 2 + offset
 
-    steps = int(duration * 120)
-
-    for i in range(steps):
+    # 2. Move in steps along the curve
+    steps = 10  # More steps = smoother curve
+    for i in range(steps + 1):
         t = i / steps
 
-        # Ease in-out (human acceleration)
-        t = t * t * (3 - 2 * t)
+        bx = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * ctrl_x + t**2 * x2
+        by = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * ctrl_y + t**2 * y2
 
-        # Quadratic Bezier curve
-        x = (1 - t) ** 2 * sx + 2 * (1 - t) * t * cx + t ** 2 * ex
-        y = (1 - t) ** 2 * sy + 2 * (1 - t) * t * cy + t ** 2 * ey
+        pyautogui.moveTo(bx, by)
 
-        # Micro jitter (hand tremor)
-        x += random.uniform(-1.3, 1.3)
-        y += random.uniform(-1.3, 1.3)
-
-        pyautogui.moveTo(x / RETINA_SCALE, y / RETINA_SCALE, _pause=False)
-        time.sleep(random.uniform(0.003, 0.008))
-
-
-def human_drag(fx, fy, tx, ty):
-    """
-    Human-like click and drag from (fx, fy) to (tx, ty)
-    """
-
-    # Move to start position first
-    current_pos = pyautogui.position()
-    human_move(
-        current_pos,
-        (fx, fy),
-        duration=random.uniform(0.3, 0.6)
-    )
-
-    # Small human reaction pause
-    time.sleep(random.uniform(0.05, 0.12))
-    pyautogui.mouseDown()
-
-    # Brief hesitation before drag
-    time.sleep(random.uniform(0.06, 0.12))
-
-    # Occasionally overshoot then correct (very human)
-    if random.random() < 0.3:
-        ox = tx + random.randint(-10, 10)
-        oy = ty + random.randint(-10, 10)
-
-        human_move(
-            (fx, fy),
-            (ox, oy),
-            duration=random.uniform(0.3, 0.6)
-        )
-
-        human_move(
-            (ox, oy),
-            (tx, ty),
-            duration=random.uniform(0.15, 0.3)
-        )
-    else:
-        human_move(
-            (fx, fy),
-            (tx, ty),
-            duration=random.uniform(0.4, 0.8)
-        )
-
-    # Natural pause before release
-    time.sleep(random.uniform(0.05, 0.15))
-    pyautogui.mouseUp()
+        # Add tiny random sleep to vary speed (acceleration/deceleration)
+        time.sleep(duration / steps * random.uniform(0.8, 1.2))

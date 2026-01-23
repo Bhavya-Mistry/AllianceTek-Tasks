@@ -1,7 +1,8 @@
 .env
 __pycache__/
 .vscode/
-Chess AUTO/.DS_Store
-Chess AUTO/uv.lock
-Chess AUTO/ultimate_v2_breakthrough_accurate.onnx
-Chess AUTO/Dockerfile
+chess auto/.DS_Store
+chess auto/uv.lock
+chess auto/ultimate_v2_breakthrough_accurate.onnx
+chess auto/Dockerfile
+*png
