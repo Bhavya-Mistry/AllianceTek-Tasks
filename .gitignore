@@ -6,3 +6,4 @@ chess auto/uv.lock
 chess auto/ultimate_v2_breakthrough_accurate.onnx
 chess auto/Dockerfile
 *png
+*.pt
