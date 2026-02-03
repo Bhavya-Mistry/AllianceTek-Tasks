@@ -2,20 +2,22 @@ import os
 import subprocess
 from pyvirtualdisplay import Display
 
-# We MUST start the display before importing pyautogui
-# otherwise pyautogui locks onto the wrong screen!
+# =========================
+# VIRTUAL DISPLAY SETUP
+# =========================
+
 print("[Display] Starting virtual display (Headless Mode)...")
-display = Display(visible=1, size=(1440, 900), backend="xephyr")
+display = Display(visible=0, size=(1440, 900), backend="xvfb")
 display.start()
 
-# Start Window Manager
 print("[Display] Starting Fluxbox Window Manager...")
 subprocess.Popen(["fluxbox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # =========================
-# 2. NOW IMPORT PYAUTOGUI
+# IMPORTS
 # =========================
-import pyautogui  # <--- Now it sees the Virtual Display!
+
+import pyautogui
 import random
 import time
 import webbrowser
@@ -32,14 +34,17 @@ from yolo_handler import YoloHandler
 import pytesseract
 
 
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 # =========================
 # CONFIG
 # =========================
+
 URL = "https://www.chess.com/play/online/new"
 TEMPLATE_PATH = "start_game_button.png"
 CONFIDENCE = 0.8
 RETINA_SCALE = 1
-
 
 counter = 0
 
@@ -47,27 +52,19 @@ STOCKFISH_PATH = r"/usr/games/stockfish"
 
 TEMP_DIR = tempfile.gettempdir()
 
-# # =========================
-# # VIRTUAL DISPLAY SETUP
-# # =========================
-# print("[Display] Starting virtual display (Headless Mode)...")
-# # display = Display(visible=1, size=(1600, 900))
-# # visible=1 means "Show me the window"
-# # backend="xephyr" tells it to open as a nested window on your desktop
-# display = Display(visible=1, size=(1440, 900), backend="xephyr")
-# display.start()
-# print("[Display] Starting Fluxbox Window Manager...")
-# subprocess.Popen(["fluxbox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-# # subprocess.Popen(["fluxbox"])
+CHESS_USERNAME = "bhavya.mistry+1@alliancetek.com"
+CHESS_PASSWORD = "Abc@123456"
 
-# # Optional: Check if display is set
-# print("DISPLAY =", os.environ.get("DISPLAY"))
-
+SMTP_SERVER = "smtp.office365.com"
+SMTP_PORT = 587
+SMTP_USERNAME = "bhavya.mistry@alliancetek.com"
+SMTP_PASSWORD = "BvY@Mi#tre3d90"
+FROM_EMAIL = "bhavya.mistry@alliancetek.com"
+TO_EMAIL = "kartik.hajela@alliancetek.com"
 
 # =========================
 # CONFIG
 # =========================
-
 
 MESSAGES = [
     "Good luck! 🎯",
@@ -85,6 +82,8 @@ MESSAGE_PROBABILITY = 0.20  # 20% chance to send a message
 # =========================
 # STOCKFISH
 # =========================
+
+
 def load_engine():
     """Helper to load or reload the stockfish engine"""
     print(f"[DEBUG] Loading Stockfish from {STOCKFISH_PATH}...")
@@ -104,16 +103,15 @@ def load_engine():
         sys.exit(1)
 
 
-# Initial Load
 stockfish = load_engine()
 
-# Initialize YOLO
 print(f"[DEBUG] Initializing YOLO...")
 try:
     yolo_handler = YoloHandler(
         seg_model_path="segmentation_model.pt",
         piece_model_path="chess_piece_detection_model_kartik.pt",
         ui_model_path="yolo_model_final.pt",
+        login_model_path="login.pt",
     )
 except Exception as e:
     print(f"[ERROR] YOLO Init failed: {e}")
@@ -123,6 +121,100 @@ except Exception as e:
 # =========================
 # HELPERS
 # =========================
+def send_completion_email():
+    """
+    Sends email using standard SMTP Auth for Office 365.
+    """
+    print(f"[Email] Attempting login for {SMTP_USERNAME}...")
+
+    msg = MIMEMultipart()
+    msg["Subject"] = "Chess Automation Complete"
+    msg["From"] = SMTP_USERNAME
+    msg["To"] = TO_EMAIL
+    body = "The chess bot has completed 1 games. Initiating handover."
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        # 1. Establish connection
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+
+        # 2. Identify and upgrade to TLS (Required for Office 365)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+
+        # 3. Login with main account password
+        server.login(SMTP_USERNAME, SMTP_PASSWORD)
+
+        # 4. Send and close
+        server.sendmail(SMTP_USERNAME, TO_EMAIL, msg.as_string())
+        server.quit()
+
+        print("[Email] Sent successfully using account password!")
+        return True
+
+    except Exception as e:
+        print(f"[Email Error] Authentication failed: {e}")
+        print(
+            "Tip: If you get 'Authentication Unsuccessful', ask your admin if 'Authenticated SMTP' is enabled."
+        )
+        return False
+
+
+def perform_login_sequence(yolo_handler):
+    """
+    Executes the strict login sequence:
+    login_one -> username -> password -> verification -> login_two
+    """
+    print("[Login] Starting login sequence...")
+
+    steps = [
+        ("login_one", None, 10),  # Standard wait (10s)
+        ("username", CHESS_USERNAME, 10),  # Standard wait (10s)
+        ("password", CHESS_PASSWORD, 10),  # Standard wait (10s)
+        ("verification", None, 3),  # <--- LOW TIMEOUT (3s) for optional button
+        ("login_two", None, 10),  # Standard wait (10s)
+        ("block_notification", None, 10),
+    ]
+
+    for target, type_text, max_attempts in steps:
+        print(f"[Login] Looking for '{target}'...")
+
+        found = False
+        # Use the specific max_attempts for this step
+        for _ in range(max_attempts):
+            # 1. Capture screen
+            screen = cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
+
+            # 2. Scan with Login Model
+            detections = yolo_handler.detect_login_elements(screen)
+            element = get_ui_element(detections, target)
+
+            if element:
+                # 3. Click
+                cx, cy = element
+                print(f"[Login] Clicking '{target}' at {cx},{cy}")
+                pyautogui.click(cx / RETINA_SCALE, cy / RETINA_SCALE)
+
+                # 4. Type if needed
+                if type_text:
+                    time.sleep(0.5)
+                    pyautogui.typewrite(type_text, interval=0.1)
+
+                found = True
+                time.sleep(1.5)
+                break
+
+            time.sleep(1)
+
+        if not found:
+            print(
+                f"[Login Warning] Could not find '{target}'. Skipping to next step..."
+            )
+
+    print("[Login] Sequence complete.")
+
+
 def is_game_over_ocr(full_img):
     """
     Checks the right sidebar for text indicating the game ended.
@@ -155,7 +247,7 @@ def is_game_over_ocr(full_img):
     # Threshold: Clean up noise to make it pure Black & White
     _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
-    # --- DEBUG: SAVE VIEW (Optional in production) ---
+    # --- DEBUG: SAVE VIEW ---
     # cv2.imwrite("debug_ocr_view.png", binary)
     # print("[DEBUG] Saved 'debug_ocr_view.png'")
 
@@ -348,6 +440,7 @@ def board_state_to_fen(board_state, side):
 # =========================
 # MAIN GAME LOOP - CONTINUOUS PLAY
 # =========================
+
 print("[Main] Starting continuous chess automation...")
 game_number = 0
 
@@ -360,7 +453,7 @@ try:
         print(f"{'=' * 60}\n")
 
         # =========================
-        # OPEN WEBSITE (first game only)
+        # OPEN WEBSITE
         # =========================
         if game_number == 1:
             try:
@@ -371,7 +464,7 @@ try:
                 print(f"[DEBUG] Opening {URL}...")
                 subprocess.Popen(
                     [
-                        "google-chrome",
+                        "chromium-browser",
                         "--kiosk",  # <--- CRITICAL CHANGE: Removes all borders/bars
                         "--no-first-run",
                         "--log-level=3",
@@ -387,6 +480,13 @@ try:
                 print("[DEBUG] Waiting 5 seconds for page to load...")
                 time.sleep(5)
                 print("[DEBUG] Page load complete")
+                ########################
+                screen1 = cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
+                cv2.imwrite("login.png", screen1)
+                print("[DEBUG] Saved login.png")
+                ####################
+                perform_login_sequence(yolo_handler)
+
             except Exception as e:
                 print(f"[ERROR] Failed to open website: {e}")
                 traceback.print_exc()
@@ -407,7 +507,7 @@ try:
             cv2.imwrite("debug_what_yolo_sees.png", screen)
             print("[DEBUG] Saved debug_what_yolo_sees.png")
             # ================================
-
+            login_scan = yolo_handler.detect_login_elements(screen)
             #  Run YOLO UI Detection
             ui_detections = yolo_handler.detect_ui_elements(screen)
 
@@ -441,7 +541,7 @@ try:
                 # ---------------------------
                 print("[UI] Found 'Play' button - clicking...")
                 pyautogui.click(play_btn[0] / RETINA_SCALE, play_btn[1] / RETINA_SCALE)
-                time.sleep(2)
+                time.sleep(4)
                 # break
 
             else:
@@ -540,6 +640,7 @@ try:
                     snap_path = os.path.join(debug_dir, f"turn_{i}.png")
                     # screenshot = pyautogui.screenshot()
                     # screenshot.save(snap_path)
+                    time.sleep(1)
                     full_screenshot = pyautogui.screenshot()
                     full_screenshot.save(snap_path)
 
@@ -837,6 +938,24 @@ try:
             print(f"[ERROR] Game #{game_number} crashed: {e}")
             traceback.print_exc()
             continue  # Try next game
+
+        if game_number == 1:
+            print("[Main] 5 Games finished. Sending email...")
+
+            # Use the helper function we defined earlier!
+            # It handles the connection, SSL/TLS, and login automatically.
+            email_sent = send_completion_email()
+
+            if email_sent:
+                print("[Main] Handover email sent successfully.")
+            else:
+                print("[Main] Failed to send handover email.")
+
+            # Stop the display and exit the script
+            print("[Display] Stopping virtual display...")
+            display.stop()
+            print("[INFO] Cleanup complete. Exiting.")
+            sys.exit(0)
 
 
 except KeyboardInterrupt:
