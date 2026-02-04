@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+  <head>
+    <title>AlgoArena Socket Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  </head>
+  <body>
+    <h1>AlgoArena Socket.IO Test</h1>
+    <div id="status"></div>
+    <div id="log"></div>
+
+    <script>
+      const socket = io("http://localhost:8000");
+      const log = document.getElementById("log");
+      const status = document.getElementById("status");
+
+      function addLog(msg) {
+        const div = document.createElement("div");
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        log.appendChild(div);
+      }
+
+      socket.on("connect", () => {
+        addLog("✅ Connected!");
+        status.textContent = "Status: Connected";
+
+        // Identify yourself
+        socket.emit("identify", { username: "TestUser" });
+      });
+
+      socket.on("identified", (data) => {
+        addLog(`✅ Identified as: ${data.username}`);
+
+        // Try to join a room (replace with actual room_id)
+        const roomId = prompt("Enter room ID to join:");
+        if (roomId) {
+          socket.emit("join_room", { room_id: roomId });
+        }
+      });
+
+      socket.on("room_update", (data) => {
+        addLog(`📢 Room Update: ${JSON.stringify(data)}`);
+      });
+
+      socket.on("error", (data) => {
+        addLog(`❌ Error: ${data.detail}`);
+      });
+
+      socket.on("disconnect", () => {
+        addLog("🔌 Disconnected");
+        status.textContent = "Status: Disconnected";
+      });
+    </script>
+  </body>
+</html>
