@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlgoArena | Battle Station</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #09090b; color: #e4e4e7; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        /* Glowing Effects */
+        .glow-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .glow-border { box-shadow: 0 0 15px rgba(59, 130, 246, 0.1); }
+        
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="h-screen flex flex-col overflow-hidden">
+
+    <header class="h-16 border-b border-white/10 bg-zinc-900/50 flex items-center justify-between px-6 backdrop-blur-md z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full" :class="isConnected ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-red-500'"></div>
+            <h1 class="font-bold text-xl tracking-tight italic">ALGO<span class="text-blue-500">ARENA</span></h1>
+        </div>
+        <div class="flex items-center gap-4 text-sm font-mono">
+            <span v-if="username" class="text-zinc-400">USER: <span class="text-white">{{ username }}</span></span>
+            <span v-if="roomId" class="bg-blue-500/10 text-blue-400 px-3 py-1 rounded border border-blue-500/20">ROOM: {{ roomId }}</span>
+        </div>
+    </header>
+
+    <main class="flex-1 relative flex">
+        
+        <div v-if="view === 'login'" class="absolute inset-0 flex items-center justify-center z-20">
+            <div class="w-full max-w-md p-8 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl glow-border">
+                <h2 class="text-2xl font-bold mb-6 text-center text-white">Identify Yourself</h2>
+                <div class="space-y-4">
+                    <input v-model="usernameInput" @keyup.enter="setIdentity" type="text" placeholder="Enter Codename" class="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 outline-none font-mono transition-colors">
+                    <button @click="setIdentity" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-all transform active:scale-95">
+                        INITIALIZE UPLINK
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div v-else-if="view === 'lobby'" class="absolute inset-0 flex items-center justify-center z-20">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl w-full p-6">
+                <div class="bg-zinc-900/80 border border-white/10 p-8 rounded-2xl hover:border-blue-500/50 transition-colors group">
+                    <h3 class="text-xl font-bold text-blue-400 mb-2">Create Match</h3>
+                    <p class="text-zinc-500 text-sm mb-6">Start a new room and wait for an opponent.</p>
+                    <select v-model="difficulty" class="w-full bg-black border border-white/10 rounded p-2 mb-4 text-sm">
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                    <button @click="createRoom" :disabled="isLoading" class="w-full bg-white text-black font-bold py-2 rounded hover:bg-gray-200 transition">
+                        {{ isLoading ? 'CREATING...' : 'CREATE ROOM' }}
+                    </button>
+                </div>
+
+                <div class="bg-zinc-900/80 border border-white/10 p-8 rounded-2xl hover:border-purple-500/50 transition-colors">
+                    <h3 class="text-xl font-bold text-purple-400 mb-2">Join Match</h3>
+                    <p class="text-zinc-500 text-sm mb-6">Enter a Room ID to challenge an opponent.</p>
+                    <input v-model="joinRoomId" type="text" placeholder="Room ID (e.g. a1b2c3d4)" class="w-full bg-black border border-white/10 rounded p-2 mb-4 text-sm font-mono">
+                    <button @click="joinRoom" class="w-full bg-zinc-800 text-white font-bold py-2 rounded hover:bg-zinc-700 transition">
+                        JOIN ROOM
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div v-else-if="view === 'waiting'" class="absolute inset-0 flex flex-col items-center justify-center z-20">
+            <div class="text-center space-y-4 animate-pulse">
+                <div class="text-6xl">⏳</div>
+                <h2 class="text-2xl font-bold">Waiting for Opponent...</h2>
+                <div class="bg-zinc-800 px-4 py-2 rounded font-mono text-blue-400 border border-blue-500/20">
+                    ID: {{ roomId }}
+                </div>
+                <p class="text-zinc-500 text-sm">Share this ID with a friend</p>
+            </div>
+        </div>
+
+        <div v-else-if="view === 'active' || view === 'finished'" class="w-full h-full grid grid-cols-12">
+            
+            <div class="col-span-4 bg-zinc-900 border-r border-white/10 flex flex-col">
+                <div class="p-6 overflow-y-auto flex-1">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/20 text-blue-400 border border-blue-500/20 uppercase">{{ problem.difficulty }}</span>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white mb-4">{{ problem.title }}</h2>
+                    <p class="text-zinc-400 leading-relaxed text-sm">
+                        {{ problem.description || "Write a Python function to solve the problem. The inputs will be provided to your function automatically." }}
+                    </p>
+                    
+                    <div class="mt-8 border-t border-white/10 pt-4">
+                        <h4 class="text-xs font-bold text-zinc-500 uppercase mb-2">Players</h4>
+                        <div class="space-y-2">
+                            <div v-for="p in players" :key="p" class="flex justify-between items-center bg-black/30 p-2 rounded">
+                                <span class="font-mono text-sm" :class="p === username ? 'text-blue-400' : 'text-zinc-300'">{{ p }}</span>
+                                <span v-if="submissions[p]" class="text-xs text-green-500 font-bold">SUBMITTED</span>
+                                <span v-else class="text-xs text-zinc-600">CODING...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-8 bg-[#0d1117] flex flex-col relative">
+                <textarea v-model="code" class="flex-1 w-full bg-transparent p-6 font-mono text-sm text-zinc-300 outline-none resize-none leading-relaxed" spellcheck="false" @keydown.tab.prevent="insertTab"></textarea>
+                
+                <div class="p-4 bg-zinc-900 border-t border-white/10 flex justify-between items-center">
+                    <div class="text-xs text-zinc-500">Python 3.10.0</div>
+                    <button @click="submitCode" :disabled="hasSubmitted" class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded font-bold transition flex items-center gap-2">
+                        <span v-if="hasSubmitted">SUBMITTED</span>
+                        <span v-else>RUN & SUBMIT</span>
+                        <svg v-if="!hasSubmitted" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </button>
+                </div>
+
+                <div v-if="matchResult" class="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div class="bg-zinc-900 border border-white/20 p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl">
+                        <h2 class="text-4xl font-black italic mb-2" 
+                            :class="matchResult.winner === username ? 'text-green-500' : (matchResult.winner ? 'text-red-500' : 'text-yellow-500')">
+                            {{ matchResult.winner === username ? 'VICTORY' : (matchResult.winner ? 'DEFEAT' : 'DRAW') }}
+                        </h2>
+                        <p class="text-zinc-400 mb-6">
+                            Winner: <span class="text-white font-bold">{{ matchResult.winner || "None" }}</span>
+                        </p>
+                        
+                        <div class="space-y-3 bg-black/50 p-4 rounded-lg text-left">
+                            <div v-for="(stats, user) in matchResult.final_scores" :key="user" class="flex justify-between text-sm font-mono">
+                                <span :class="user === username ? 'text-blue-400' : 'text-zinc-400'">{{ user }}</span>
+                                <span :class="stats.status === 'passed' ? 'text-green-400' : 'text-red-400'">
+                                    {{ stats.total_passed }}/{{ stats.total_tests }} Passed
+                                </span>
+                            </div>
+                        </div>
+
+                        <button @click="resetGame" class="mt-6 w-full bg-white text-black font-bold py-3 rounded hover:bg-gray-200">PLAY AGAIN</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <div class="h-48 bg-black border-t border-white/10 flex flex-col font-mono text-xs">
+        <div class="px-4 py-2 border-b border-white/10 bg-zinc-900/50 text-zinc-500 font-bold uppercase tracking-wider flex justify-between">
+            <span>System Logs</span>
+            <button @click="logs = []" class="hover:text-white">Clear</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-1" id="log-container">
+            <div v-for="(log, i) in logs" :key="i" :class="log.color">
+                <span class="opacity-50 mr-2">[{{ log.time }}]</span> {{ log.msg }}
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const { createApp, ref, computed, nextTick } = Vue;
+
+    createApp({
+        setup() {
+            // State
+            const socket = io("http://localhost:8000");
+            const isConnected = ref(false);
+            const view = ref('login'); // login, lobby, waiting, active, finished
+            const username = ref('');
+            const usernameInput = ref('');
+            const roomId = ref('');
+            const joinRoomId = ref('');
+            const difficulty = ref('easy');
+            const players = ref([]);
+            const logs = ref([]);
+            const problem = ref({});
+            const code = ref("# Write your solution here\n\ndef solution(s):\n    return s");
+            const isLoading = ref(false);
+            const submissions = ref({}); // Track who submitted
+            const matchResult = ref(null);
+
+            // Helpers
+            const log = (msg, color = 'text-zinc-400') => {
+                logs.value.push({
+                    time: new Date().toLocaleTimeString(),
+                    msg,
+                    color
+                });
+                // Auto scroll
+                nextTick(() => {
+                    const el = document.getElementById('log-container');
+                    if(el) el.scrollTop = el.scrollHeight;
+                });
+            };
+
+            // --- SOCKET EVENTS ---
+            socket.on("connect", () => {
+                isConnected.value = true;
+                log("Connected to server.", "text-green-400");
+            });
+
+            socket.on("disconnect", () => {
+                isConnected.value = false;
+                log("Disconnected from server.", "text-red-400");
+            });
+
+            socket.on("identified", (data) => {
+                username.value = data.username;
+                view.value = 'lobby';
+                log(`Identity confirmed: ${data.username}`, "text-blue-400");
+            });
+
+            socket.on("error", (data) => {
+                log(`ERROR: ${data.detail}`, "text-red-500 font-bold");
+                isLoading.value = false;
+            });
+
+            socket.on("room_update", (data) => {
+                players.value = data.players;
+                // If 2 players, start game
+                if (data.status === 'active' && view.value !== 'active') {
+                    view.value = 'active';
+                    log("Both players connected. Match starting!", "text-yellow-400 font-bold");
+                    fetchProblem();
+                } else if (data.status === 'finished') {
+                    // Do nothing, wait for match_ended
+                } else {
+                    log(`Room Status: ${data.status} (${data.players.length}/2 Players)`, "text-zinc-500");
+                }
+            });
+
+            socket.on("submission_update", (data) => {
+                submissions.value = data.submissions;
+                log("A player has submitted code.", "text-purple-400");
+            });
+
+            socket.on("match_ended", (data) => {
+                matchResult.value = data;
+                view.value = 'finished';
+                log(`Match Ended. Winner: ${data.winner}`, "text-green-500 font-bold");
+            });
+
+            // --- ACTIONS ---
+
+            const setIdentity = () => {
+                if (!usernameInput.value) return;
+                socket.emit("identify", { username: usernameInput.value });
+            };
+
+            const createRoom = async () => {
+                isLoading.value = true;
+                try {
+                    // 1. Call REST API to create room
+                    const res = await fetch("http://localhost:8000/rooms", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            username: username.value,
+                            difficulty: difficulty.value
+                        })
+                    });
+                    
+                    if (!res.ok) throw new Error("Failed to create room");
+                    
+                    const data = await res.json();
+                    roomId.value = data.room_id;
+                    log(`Room Created: ${data.room_id}`, "text-blue-400");
+
+                    // 2. Join via Socket
+                    socket.emit("join_room", { room_id: data.room_id });
+                    
+                    view.value = 'waiting';
+                } catch (e) {
+                    log(e.message, "text-red-400");
+                } finally {
+                    isLoading.value = false;
+                }
+            };
+
+            const joinRoom = () => {
+                if (!joinRoomId.value) return;
+                roomId.value = joinRoomId.value;
+                socket.emit("join_room", { room_id: joinRoomId.value });
+                // We assume success and go to waiting, room_update will fix if active
+                view.value = 'waiting'; 
+            };
+
+            const fetchProblem = async () => {
+                try {
+                    const res = await fetch(`http://localhost:8000/rooms/${roomId.value}`);
+                    const data = await res.json();
+                    problem.value = data.problem;
+                    // Reset code slightly
+                    code.value = `def solution(s):\n    # Solve: ${data.problem.title}\n    return s`;
+                } catch (e) {
+                    log("Failed to fetch problem details", "text-red-400");
+                }
+            };
+
+            const submitCode = () => {
+                log("Submitting code to judge...", "text-yellow-500");
+                socket.emit("submit_code", {
+                    room_id: roomId.value,
+                    code: code.value
+                });
+            };
+
+            const insertTab = (e) => {
+                const textarea = e.target;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                code.value = code.value.substring(0, start) + "    " + code.value.substring(end);
+                nextTick(() => {
+                    textarea.selectionStart = textarea.selectionEnd = start + 4;
+                });
+            };
+
+            const resetGame = () => {
+                location.reload();
+            }
+
+            const hasSubmitted = computed(() => {
+                return !!submissions.value[username.value];
+            });
+
+            return {
+                view, username, usernameInput, roomId, joinRoomId, difficulty,
+                isConnected, players, logs, problem, code, isLoading, submissions, matchResult,
+                setIdentity, createRoom, joinRoom, submitCode, insertTab, hasSubmitted, resetGame
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

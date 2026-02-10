@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlgoArena Tester</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <div class="space-y-6 bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h2 class="text-2xl font-bold border-b border-gray-700 pb-2">Actions</h2>
+            
+            <div>
+                <label class="block text-sm mb-1">1. Identify Username</label>
+                <div class="flex gap-2">
+                    <input id="username" type="text" placeholder="Alice" class="bg-gray-700 p-2 rounded flex-1">
+                    <button onclick="identify()" class="bg-blue-600 px-4 py-2 rounded hover:bg-blue-500">Login</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm mb-1">2. Room ID</label>
+                <div class="flex gap-2">
+                    <input id="room_id" type="text" placeholder="Room ID" class="bg-gray-700 p-2 rounded flex-1">
+                    <button onclick="joinRoom()" class="bg-green-600 px-4 py-2 rounded hover:bg-green-500">Join</button>
+                </div>
+                <p class="text-xs text-gray-400 mt-1">*Create a room via POST /rooms first if you don't have an ID.</p>
+            </div>
+
+            <div>
+                <label class="block text-sm mb-1">3. Submit Code (Python)</label>
+                <textarea id="code" rows="6" class="w-full bg-gray-700 p-2 rounded font-mono text-sm">def solution(a, b):
+    return a + b</textarea>
+                <button onclick="submitCode()" class="w-full mt-2 bg-purple-600 py-2 rounded font-bold hover:bg-purple-500">SUBMIT CODE</button>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="bg-black p-6 rounded-lg border border-gray-700 h-[500px] flex flex-col">
+                <h2 class="text-xl font-bold mb-4 text-green-400">Live Console</h2>
+                <div id="console" class="flex-1 overflow-y-auto font-mono text-xs space-y-2">
+                    <div class="text-gray-500">> Waiting for connection...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Connect to your FastAPI server
+        const socket = io("http://localhost:8000");
+        const consoleEl = document.getElementById('console');
+
+        function log(msg, color = "text-gray-300") {
+            const div = document.createElement('div');
+            div.className = color;
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            consoleEl.appendChild(div);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        socket.on("connect", () => log("Connected to Server!", "text-green-400"));
+        socket.on("error", (data) => log("ERROR: " + data.detail, "text-red-400"));
+        
+        // Listen for Server Events
+        socket.on("identified", (data) => log(`Identified as: ${data.username}`, "text-blue-300"));
+        socket.on("room_update", (data) => log(`Room Update: Status=${data.status}, Players=${data.players.join(', ')}`, "text-yellow-200"));
+        socket.on("submission_update", (data) => log(`Submission received! Both done? ${data.both_submitted}`, "text-purple-300"));
+        
+        socket.on("match_ended", (data) => {
+            const winnerText = data.winner ? `WINNER: ${data.winner}` : "IT'S A TIE!";
+            log(`MATCH ENDED! ${winnerText}`, "text-green-500 font-bold text-lg");
+        });
+
+        // Emitters
+        function identify() {
+            const username = document.getElementById('username').value;
+            socket.emit("identify", { username });
+        }
+
+        function joinRoom() {
+            const room_id = document.getElementById('room_id').value;
+            socket.emit("join_room", { room_id });
+        }
+
+        function submitCode() {
+            const room_id = document.getElementById('room_id').value;
+            const code = document.getElementById('code').value;
+            log("Sending code for validation...");
+            socket.emit("submit_code", { room_id, code });
+        }
+    </script>
+</body>
+</html>
