@@ -9,6 +9,7 @@ import socketio
 import httpx
 from dotenv import load_dotenv
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 # =====================================================
 # APP
@@ -16,9 +17,17 @@ import os
 app = FastAPI()
 load_dotenv()
 
-# create socket IO server
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
-socket_app = socketio.ASGIApp(sio, app)
+
+app = FastAPI()
+
+# Add this block!
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (POST, GET, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
 
 
 # =====================================================
@@ -390,6 +399,9 @@ async def submit_code(room_id: str, request: SubmissionRequest):
 # =====================================================
 # SOCKETS
 # =====================================================
+# create socket IO server
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+socket_app = socketio.ASGIApp(sio, app)
 
 
 @sio.event
@@ -442,7 +454,7 @@ async def join_room(sid, data):
     # IMPORTANT: Update the session to include room_id so disconnect works!
     await sio.save_session(sid, {"username": username, "room_id": room_id})
 
-    sio.enter_room(sid, room_id)
+    await sio.enter_room(sid, room_id)
 
     if len(room["players"]) == 2:
         room["status"] = "active"
@@ -494,3 +506,78 @@ async def disconnect(sid):
             },
             room=room_id,
         )
+
+
+@sio.event
+async def submit_code(sid, data):
+    session = await sio.get_session(sid)
+    username = session.get("username")
+    room_id = data.get("room_id")
+    user_code = data.get("code")
+
+    if not username or not room_id:
+        return await sio.emit(
+            "error", {"detail": "Missing session or room data"}, to=sid
+        )
+
+    if room_id not in rooms_db:
+        return await sio.emit("error", {"detail": "Room not found"}, to=sid)
+
+    room = rooms_db[room_id]
+
+    # 1. Logic Check
+    if room["status"] != "active":
+        return await sio.emit("error", {"detail": "Match is not active"}, to=sid)
+
+    # 2. Validate Code
+    # Note: Using the function we built in Task 2/3
+    result = await validate_submission(room["problem"]["id"], user_code)
+
+    # 3. Store Result
+    if "submissions" not in room:
+        room["submissions"] = {}
+
+    submission_entry = {
+        "username": username,
+        "status": result["status"],
+        "total_passed": result["total_passed"],
+        "total_tests": result["total_tests"],
+        "submitted_at": datetime.now().isoformat(),
+    }
+    room["submissions"][username] = submission_entry
+
+    # 4. Event B: submission_update (Broadcast to room)
+    both_submitted = len(room["submissions"]) == len(room["players"])
+
+    update_payload = {
+        "room_id": room_id,
+        "submissions": room["submissions"],
+        "both_submitted": both_submitted,
+    }
+    await sio.emit("submission_update", update_payload, room=room_id)
+
+    # 5. Event C: match_ended (If both submitted)
+    if both_submitted:
+        room["status"] = "finished"
+
+        # Determine winner logic
+        players = list(room["submissions"].keys())
+        p1, p2 = players[0], players[1]
+        score1 = room["submissions"][p1]["total_passed"]
+        score2 = room["submissions"][p2]["total_passed"]
+
+        winner = None
+        if score1 > score2:
+            winner = p1
+        elif score2 > score1:
+            winner = p2
+        else:
+            winner = None  # Tie
+
+        end_payload = {
+            "room_id": room_id,
+            "winner": winner,
+            "reason": "both_submitted",
+            "final_scores": room["submissions"],
+        }
+        await sio.emit("match_ended", end_payload, room=room_id)
