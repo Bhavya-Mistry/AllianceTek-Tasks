@@ -6,19 +6,29 @@ import uuid
 import random
 from datetime import datetime
 import socketio
+import httpx
+from dotenv import load_dotenv
+import os
 
 # =====================================================
 # APP
 # =====================================================
 app = FastAPI()
+load_dotenv()
 
 # create socket IO server
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 socket_app = socketio.ASGIApp(sio, app)
 
+
 # =====================================================
 # MODELS
 # =====================================================
+class TestResults(BaseModel):
+    input: Any
+    expected: Any
+    actual: Any
+    passed: bool
 
 
 # What a problem summary looks like
@@ -53,6 +63,9 @@ class PlayerStatus(BaseModel):
 # =====================================================
 # REQUEST MODELS
 # =====================================================
+class SubmissionRequest(BaseModel):
+    username: str
+    code: str
 
 
 class CreateRoomRequest(BaseModel):
@@ -68,6 +81,14 @@ class JoinRoomRequest(BaseModel):
 # =====================================================
 # RESPONSE MODELS
 # =====================================================
+class SubmissionResponse(BaseModel):
+    submission_id: str
+    username: str
+    status: str
+    total_passed: int
+    total_tests: int
+    execution_time_ms: int
+    test_results: List[TestResults]
 
 
 # Define the structure of the final response
@@ -115,8 +136,109 @@ online_users = {}
 
 
 # =====================================================
+# HELPERS
+# =====================================================
+
+
+async def validate_submission(problem_id: str, user_code: str):
+    # 1. Fetch full problem data (including hidden tests)
+    problem = next((p for p in problems_db if p["id"] == problem_id), None)
+    if not problem:
+        return {"status": "error", "message": "Problem database mismatch"}
+
+    # Combine public and hidden tests for the final judge
+    all_tests = problem.get("public_tests", []) + problem.get("hidden_tests", [])
+
+    test_results = []
+    passed_count = 0
+
+    # 2. Prepare the Wrapper Script
+    # We wrap the user's code to execute each test case and print results in a parsable way
+    # This example assumes Python.
+    full_code = user_code + "\n\n"
+    full_code += "import json\n"
+    full_code += f"tests = {json.dumps(all_tests)}\n"
+    full_code += "results = []\n"
+    full_code += "for t in tests:\n"
+    full_code += "    try:\n"
+    full_code += "        # Dynamic call: assumes a function named 'solution'\n"
+    full_code += "        res = solution(**t['input'])\n"
+    full_code += "        print(json.dumps({'actual': res}))\n"
+    full_code += "    except Exception as e:\n"
+    full_code += "        print(json.dumps({'error': str(e)}))\n"
+
+    # 3. Call Piston API
+    PISTON_URL = os.getenv("PISTON_API_URL")
+    payload = {
+        "language": "python",
+        "version": "3.10.0",
+        "files": [{"content": full_code}],
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(PISTON_URL, json=payload, timeout=10.0)
+            execution = response.json()
+        except Exception as e:
+            return {"status": "error", "message": f"Execution engine unreachable: {e}"}
+
+    # 4. Parse Output
+    run_data = execution.get("run", {})
+    stdout_lines = run_data.get("stdout", "").strip().split("\n")
+    stderr = run_data.get("stderr", "")
+
+    if stderr:
+        return {
+            "status": "error",
+            "message": stderr,
+            "total_passed": 0,
+            "total_tests": len(all_tests),
+            "execution_time_ms": 0,
+            "test_results": [],
+        }
+
+    # 5. Compare Actual vs Expected
+    for i, test in enumerate(all_tests):
+        try:
+            actual_data = json.loads(stdout_lines[i])
+            actual_val = actual_data.get("actual")
+
+            is_passed = actual_val == test["expected"]
+            if is_passed:
+                passed_count += 1
+
+            test_results.append(
+                {
+                    "input": test["input"],
+                    "expected": test["expected"],
+                    "actual": actual_val,
+                    "passed": is_passed,
+                }
+            )
+        except:
+            test_results.append(
+                {
+                    "input": test["input"],
+                    "expected": test["expected"],
+                    "actual": "Execution Error",
+                    "passed": False,
+                }
+            )
+
+    return {
+        "status": "passed" if passed_count == len(all_tests) else "failed",
+        "total_passed": passed_count,
+        "total_tests": len(all_tests),
+        "execution_time_ms": 100,  # Piston doesn't always provide raw MS, can be estimated
+        "test_results": test_results,
+    }
+
+
+# =====================================================
 # ENDPOINTS
 # =====================================================
+
+
 @app.get("/health")
 def health():
     return {"Status": "Ok", "Service": "algoarena-backend"}
@@ -210,6 +332,59 @@ def get_room_status(room_id: str):
         raise HTTPException(status_code=404, detail="Room not found")
 
     return rooms_db[room_id]
+
+
+@app.post("/rooms/{room_id}/submit", response_model=SubmissionResponse)
+async def submit_code(room_id: str, request: SubmissionRequest):
+    if room_id not in rooms_db:
+        raise HTTPException(status_code=404, detail="Room not fount")
+
+    room = rooms_db[room_id]
+
+    if room["status"] != "active":
+        raise HTTPException(status_code=400, detail="Room is not active")
+
+    player_names = [p["username"] for p in room["players"]]
+
+    if request.username not in player_names:
+        raise HTTPException(
+            status_code=403, detail="User is not a participant in this room"
+        )
+
+    result = await validate_submission(room["problem"]["id"], request.code)
+
+    # MOCK RESULT FOR TESTING:
+    # result = {
+    #     "status": "passed",
+    #     "total_passed": 5,
+    #     "total_tests": 5,
+    #     "execution_time_ms": 45,
+    #     "test_results": [],
+    # }
+
+    submission_id = str(uuid.uuid4())
+    submission_data = {
+        "submission_id": submission_id,
+        "username": request.username,
+        "code": request.code,
+        "submitted_at": datetime.now(),
+        **result,
+    }
+
+    if "submissions" not in room:
+        room["submissions"] = {}
+
+    room["submissions"][request.username] = submission_data
+
+    if len(room["submissions"]) == len(room["players"]):
+        room["status"] = "finished"
+        await sio.emit(
+            "match_finished",
+            {"room_id": room_id, "results": room["submissions"]},
+            room=room_id,
+        )
+
+    return submission_data
 
 
 # =====================================================
