@@ -8,3 +8,6 @@ images/
 *.zip
 .env
 .ini
+
+
+.pt
