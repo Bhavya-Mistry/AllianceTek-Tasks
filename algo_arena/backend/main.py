@@ -349,7 +349,7 @@ async def submit_code(room_id: str, request: SubmissionRequest):
         raise HTTPException(status_code=404, detail="Room not fount")
 
     room = rooms_db[room_id]
-
+    # test
     if room["status"] != "active":
         raise HTTPException(status_code=400, detail="Room is not active")
 
